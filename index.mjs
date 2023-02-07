@@ -2,9 +2,11 @@ import puppeteer from 'puppeteer';
 import fs from 'fs/promises'
 
 const URLS = [
-
+    'https://www.indeed.com/rc/clk?jk=5a37ae9051c799fe&from=hp&tk=1gohq4drbi6nc801',
+    'https://www.indeed.com/rc/clk?jk=5a37ae9051c799fe&from=hp&tk=1gohq4drbi6nc801',
 ]
 
+let ARR = []
 main()
 async function main() {
     const cookies = JSON.parse(await fs.readFile('COOKIE'))
@@ -15,7 +17,6 @@ async function main() {
         }
     });
     const page = await browser.newPage();
-
     const acceptBeforeUnload = dialog =>
         dialog.type() === "beforeunload" && dialog.accept()
         ;
@@ -23,88 +24,99 @@ async function main() {
 
     await page.setCookie(...cookies)
 
-    let ARR = []
     await page.exposeFunction("addArr", (item) => { ARR.push(item) });
+    await page.exposeFunction("setCookie", setCookie);
 
+    await runPuppet(page)
+
+    async function setCookie() {
+        const cookies = await page.cookies();
+        fs.writeFile('COOKIE', JSON.stringify(cookies), (err) => {
+            if (err) console.error('err writing cookies')
+            else console.log('cookies wrote to file')
+        })
+        page.off('framenavigated')
+    }
+}
+
+async function runPuppet(page) {
     for (const URL of URLS) {
         await page.goto(URL, { waitUntil: 'load' });
         const jobTitle = await page.evaluate(() => document.querySelector('.jobsearch-JobInfoHeader-title')?.innerHTML.match(/<.*>([a-zA-Z ]+)/)[1] || new Date().toLocaleString())
         const company = await page.evaluate(() => document.querySelector('div[data-company-name]').innerHTML || '')
-        //check apply button is disabled
         const isApplyCompanySite = await page.evaluate(() => /Apply on company site/i.test(document.querySelector('#applyButtonLinkContainer')?.innerHTML))
         if (isApplyCompanySite) {
             await fs.appendFile('COMPANY_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
             continue
         }
+        //check apply button is disabled
         const isApplyDisabled = await page.evaluate(() => document.querySelector('#indeedApplyButton')?.hasAttribute('disabled'))
         if (isApplyDisabled) {
             await fs.appendFile('ERROR_URLS', '\n' + JSON.stringify({ msg: 'applied', url: URL }) + ',')
             continue
         }
         await page.click('#indeedApplyButton')
-        // await page.waitForNavigation()
+        await page.waitForNavigation()
 
-
-
-        let intervalId
-        let preUrl
-        await new Promise((resolve, reject) => {
-            intervalId = setInterval(async () => {
-                try {
-
-                    ARR = []
-                    const currentUrl = await page.evaluate(() => document.location.href);
-                    if (currentUrl == preUrl) {
-                        throw new Error('fail submitting')
-                    }
-                    else preUrl = currentUrl
-                    await page.evaluate(evaluate)
-                    console.log(ARR);
-                    for (const { id, classname, checked, value, selectValue } of ARR) {
-                        if (id) {
-                            if (selectValue) await page.select('#' + id, selectValue)
-                            if (checked) await page.click('#' + id)
-                            if (value) await page.type('#' + id, value)
-                        }
-
-                    }
-                    const isSubmitAppBtn = await page.evaluate(() => /Submit your application/i.test(document.querySelector('.ia-continueButton')?.innerHTML))
-                    await page.click('.ia-continueButton')
-                    if (isSubmitAppBtn) {
-                        await page.screenshot({ path: [jobTitle, company].join('-') + '.png', type: 'png', fullPage: true });
-                        await fs.appendFile('SUCCESS_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
-                        clearInterval(intervalId)
-                        resolve()
-                    }
-
-                } catch (error) {
-                    clearInterval(intervalId)
-                    resolve()
-                    console.log('EXIT INTERVAL', error.message);
-                    await fs.appendFile('ERROR_URLS', '\n' + JSON.stringify({ msg: error.message, url: URL, }) + ',')
+        const needToLogin = await page.evaluate(() => !!document.querySelector('input[type=email]'))
+        if (!needToLogin) await fillForms()
+        else {
+            page.on("framenavigated", async (frame) => {
+                const url = frame.url();
+                if (!/secure.indeed.com\/auth/i.test(url)) {
+                    await wait(3000)
+                    await page.evaluate(listenToSubmission)
                 }
 
-            }, 3000)
-        })
+            });
+            break
+        }
+
+        async function fillForms() {
+            let intervalId
+            let preUrl
+            await new Promise((resolve, reject) => {
+                intervalId = setInterval(async () => {
+                    try {
+
+                        ARR = []
+                        const currentUrl = await page.evaluate(() => document.location.href);
+                        if (currentUrl == preUrl) {
+                            throw new Error('fail submitting')
+                        }
+                        else preUrl = currentUrl
+                        await page.evaluate(evaluate)
+                        console.log(ARR);
+                        for (const { id, classname, checked, value, selectValue } of ARR) {
+                            if (id) {
+                                if (selectValue) await page.select('#' + id, selectValue)
+                                if (checked) await page.click('#' + id)
+                                if (value) await page.type('#' + id, value)
+                            }
+
+                        }
+                        const isSubmitAppBtn = await page.evaluate(() => /Submit your application/i.test(document.querySelector('.ia-continueButton')?.innerHTML))
+                        await page.click('.ia-continueButton')
+                        if (isSubmitAppBtn) {
+                            await page.screenshot({ path: [jobTitle, company].join('-') + '.png', type: 'png', fullPage: true });
+                            await fs.appendFile('SUCCESS_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
+                            clearInterval(intervalId)
+                            resolve()
+                        }
+
+                    } catch (error) {
+                        clearInterval(intervalId)
+                        resolve()
+                        console.log('EXIT INTERVAL', error.message);
+                        await fs.appendFile('ERROR_URLS', '\n' + JSON.stringify({ msg: error.message, url: URL, }) + ',')
+                    }
+
+                }, 3000)
+            })
+        }
     }
 
-
-
-
-
-
-
-    // setInterval(async() => {
-    //     const cookies = await page.cookies();
-    //     fs.writeFile('COOKIE',JSON.stringify(cookies),(err)=>{
-    //         if(err)console.error('err writing cookies')
-    //         else console.log('cookies wrote to file')
-    //     })
-    // }, 10000);
-
-
     console.log('done');
-
 }
 
 function evaluate() {
@@ -251,6 +263,25 @@ function evaluate() {
                 addArr(obj)
             }
         }
+    }
+}
+
+function listenToSubmission() {
+    // if (document.querySelector('#emailform')) return false
+    // if (document.querySelector('#loginform')) return false
+    // if (document.querySelector('#passpage-container')) return false
+    // window.addEventListener('submit', createButton)
+    // return true
+    createButton()
+    function createButton() {
+        if (document.querySelector('#div_id')) return true
+        let btn = document.createElement("button");
+        btn.innerText = 'Click after logged in'
+        btn.id = "div_id";
+        btn.className = "div_class";
+        btn.style = "background-color: lightgrey; position:absolute; top:1rem";
+        document?.body?.appendChild(btn);
+        btn.addEventListener('click', setCookie)
     }
 }
 
