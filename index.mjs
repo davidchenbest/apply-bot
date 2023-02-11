@@ -2,6 +2,7 @@ import puppeteer from 'puppeteer';
 import fs from 'fs/promises'
 
 import URLS from './URLS.mjs'
+import QUESTION_TYPES from './QUESTION_TYPES.mjs'
 
 let ARR = []
 main()
@@ -23,6 +24,7 @@ async function main() {
 
     await page.exposeFunction("addArr", (item) => { ARR.push(item) });
     await page.exposeFunction("setCookie", setCookie);
+    await page.exposeFunction("getQuestionTypes", () => QUESTION_TYPES);
 
     await runPuppet(page)
 
@@ -38,141 +40,96 @@ async function main() {
 
 async function runPuppet(page) {
     for (const URL of URLS) {
-        await page.goto(URL, { waitUntil: 'load' });
-        const jobTitle = await page.evaluate(() => document.querySelector('.jobsearch-JobInfoHeader-title')?.innerHTML.match(/<.*>([a-zA-Z ]+)/)[1] || new Date().toLocaleString())
-        const company = await page.evaluate(() => document.querySelector('div[data-company-name]').innerHTML || '')
-        const isApplyCompanySite = await page.evaluate(() => /Apply on company site/i.test(document.querySelector('#applyButtonLinkContainer')?.innerHTML))
-        if (isApplyCompanySite) {
-            await fs.appendFile('COMPANY_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
-            continue
-        }
-        //check apply button is disabled
-        const isApplyDisabled = await page.evaluate(() => document.querySelector('#indeedApplyButton')?.hasAttribute('disabled'))
-        if (isApplyDisabled) {
-            await fs.appendFile('ERROR_URLS', '\n' + JSON.stringify({ msg: 'applied', url: URL }) + ',')
-            continue
-        }
-        await page.click('#indeedApplyButton')
-        await page.waitForNavigation()
+        try {
+            await page.goto(URL, { waitUntil: 'load' });
+            const jobTitle = await page.evaluate(() => document.querySelector('.jobsearch-JobInfoHeader-title')?.innerHTML.match(/(<.*>)?([a-zA-Z ]+)/)[2] || new Date().toLocaleString())
+            const company = await page.evaluate(() => document.querySelector('div[data-company-name]')?.innerHTML.match(/(<.*>)?([a-zA-Z ]+)/)[2] || '')
+            const isApplyCompanySite = await page.evaluate(() => /Apply on company site/i.test(document.querySelector('#applyButtonLinkContainer')?.innerHTML))
 
-        const needToLogin = await page.evaluate(() => !!document.querySelector('input[type=email]'))
-        if (!needToLogin) await fillForms()
-        else {
-            page.on("framenavigated", async (frame) => {
-                const url = frame.url();
-                if (!/secure.indeed.com\/auth/i.test(url)) {
-                    await wait(3000)
-                    await page.evaluate(createUserControls)
-                }
-            });
-            break
-        }
+            if (isApplyCompanySite) {
+                await fs.appendFile('COMPANY_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
+                continue
+            }
+            //check apply button is disabled
+            const isApplyDisabled = await page.evaluate(() => document.querySelector('#indeedApplyButton')?.hasAttribute('disabled'))
+            if (isApplyDisabled) {
+                await fs.appendFile('ERROR_URLS', '\n' + JSON.stringify({ msg: 'applied', url: URL }) + ',')
+                continue
+            }
+            await page.click('#indeedApplyButton')
+            await page.waitForNavigation()
 
-        async function fillForms() {
-            let intervalId
-            let preUrl
-            await new Promise((resolve, reject) => {
-                intervalId = setInterval(async () => {
-                    try {
-                        ARR = []
-                        const currentUrl = await page.evaluate(() => document.location.href);
-                        if (currentUrl == preUrl) {
-                            throw new Error('fail submitting')
-                        }
-                        else preUrl = currentUrl
-                        await page.evaluate(evaluate)
-                        console.log(ARR);
-                        for (const { id, classname, checked, value, selectValue } of ARR) {
-                            if (id) {
-                                if (selectValue) await page.select('#' + id, selectValue)
-                                if (checked) await page.click('#' + id)
-                                if (value) await page.type('#' + id, value)
+            const needToLogin = await page.evaluate(() => !!document.querySelector('input[type=email]'))
+            if (!needToLogin) await fillForms()
+            else {
+                page.on("framenavigated", async (frame) => {
+                    const url = frame.url();
+                    if (!/secure.indeed.com\/auth/i.test(url)) {
+                        await wait(3000)
+                        await page.evaluate(createUserControls)
+                    }
+                });
+                break
+            }
+
+            async function fillForms() {
+                let intervalId
+                let preUrl
+                await new Promise((resolve, reject) => {
+                    intervalId = setInterval(async () => {
+                        try {
+                            ARR = []
+                            const currentUrl = await page.evaluate(() => document.location.href);
+                            if (currentUrl == preUrl) {
+                                throw new Error('fail submitting')
+                            }
+                            else preUrl = currentUrl
+                            await page.evaluate(autoFillForms)
+                            console.log(ARR);
+                            for (const { id, classname, checked, value, selectValue } of ARR) {
+                                if (id) {
+                                    if (selectValue) await page.select('#' + id, selectValue)
+                                    if (checked) await page.click('#' + id)
+                                    if (value) await page.type('#' + id, value)
+                                }
+
+                            }
+                            const isSubmitAppBtn = await page.evaluate(() => /Submit your application/i.test(document.querySelector('.ia-continueButton')?.innerHTML))
+                            await page.click('.ia-continueButton')
+                            if (isSubmitAppBtn) {
+                                await page.screenshot({ path: [jobTitle, company].join('-') + '.png', type: 'png', fullPage: true });
+                                await fs.appendFile('SUCCESS_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
+                                clearInterval(intervalId)
+                                resolve()
                             }
 
-                        }
-                        const isSubmitAppBtn = await page.evaluate(() => /Submit your application/i.test(document.querySelector('.ia-continueButton')?.innerHTML))
-                        await page.click('.ia-continueButton')
-                        if (isSubmitAppBtn) {
-                            await page.screenshot({ path: [jobTitle, company].join('-') + '.png', type: 'png', fullPage: true });
-                            await fs.appendFile('SUCCESS_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
+                        } catch (error) {
                             clearInterval(intervalId)
-                            resolve()
+                            console.log('EXIT INTERVAL', error.message);
+                            reject(error)
                         }
 
-                    } catch (error) {
-                        clearInterval(intervalId)
-                        resolve()
-                        console.log('EXIT INTERVAL', error.message);
-                        await fs.appendFile('ERROR_URLS', '\n' + JSON.stringify({ msg: error.message, url: URL, }) + ',')
-                    }
+                    }, 3000)
+                })
+            }
+        }
+        catch (error) {
+            await fs.appendFile('ERROR_URLS', '\n' + JSON.stringify({ msg: error.message, url: URL, }) + ',')
 
-                }, 3000)
-            })
         }
     }
 
     console.log('done');
 }
 
-function evaluate() {
-    const TYPES = [
-        {
-            regex: /authorized to work in the United States|eligible to work in the United states/i,
-            checked: true
-        },
-        {
-            regex: /no sponsor|not sponsor/i,
-            checked: true
-        },
-        {
-            regex: /require visa/i,
-            checked: false
-        },
-        {
-            regex: /sms/i,
-            checked: false
-        },
-        {
-            regex: /Ethnicity/i,
-            select: /asian/i
-        },
-        {
-            regex: /country/i,
-            select: /united states/i
-        },
-        {
-            regex: /gender/i,
-            checked: true
-        },
-        {
-            regex: /Contact Method/i,
-            checked: true
-        },
-        {
-            regex: /read and accept/i,
-            checked: true
-        },
-
-        {
-            regex: /salary/i,
-            value: '90000'
-        },
-        {
-            regex: /python|type ?script|java ?script|node( .)?(js)?|react( .)?(js)?|web|server/i,
-            checked: true
-        },
-        {
-            regex: /sql/i,
-            value: '2'
-        },
-    ]
+async function autoFillForms() {
+    const QUESTION_TYPES = await getQuestionTypes()
     const elements = document.querySelectorAll('.ia-Questions-item')
-
     for (const el of elements) {
         let useDefault = true
         if (/optional/i.test(el.innerHTML)) continue
-        for (const { regex, checked, value, select } of TYPES) {
-            if (!regex.test(el.innerHTML)) continue
+        for (const { regex, checked, value, select } of QUESTION_TYPES) {
+            if (!new RegExp(regex, 'i').test(el.innerHTML)) continue
             const textarea = el.querySelector('textarea')
             if (select) {
                 const selectEl = el.querySelector('select')
