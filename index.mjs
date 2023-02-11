@@ -15,9 +15,7 @@ async function main() {
         }
     });
     const page = await browser.newPage();
-    const acceptBeforeUnload = dialog =>
-        // dialog.type() === "beforeunload" && dialog.accept()
-        dialog.accept()
+    const acceptBeforeUnload = dialog => dialog.accept()
     page.on("dialog", acceptBeforeUnload);
 
     await page.setCookie(...cookies)
@@ -25,8 +23,17 @@ async function main() {
     await page.exposeFunction("addArr", (item) => { ARR.push(item) });
     await page.exposeFunction("setCookie", setCookie);
     await page.exposeFunction("getQuestionTypes", () => QUESTION_TYPES);
+    await page.exposeFunction("runPuppet", () => runPuppet(page));
+    
+    await page.evaluate(createUserControls)
 
-    await runPuppet(page)
+    page.on("framenavigated", async (frame) => {
+        const url = frame.url();
+        if (!/secure.indeed.com\/auth/i.test(url)) {
+            await wait(1000)
+            await page.evaluate(createUserControls)
+        }
+    });
 
     async function setCookie() {
         const cookies = await page.cookies();
@@ -34,7 +41,7 @@ async function main() {
             if (err) console.error('err writing cookies')
             else console.log('cookies wrote to file')
         })
-        page.off('framenavigated')
+        // page.off('framenavigated')
     }
 }
 
@@ -62,13 +69,7 @@ async function runPuppet(page) {
             const needToLogin = await page.evaluate(() => !!document.querySelector('input[type=email]'))
             if (!needToLogin) await fillForms()
             else {
-                page.on("framenavigated", async (frame) => {
-                    const url = frame.url();
-                    if (!/secure.indeed.com\/auth/i.test(url)) {
-                        await wait(3000)
-                        await page.evaluate(createUserControls)
-                    }
-                });
+                
                 break
             }
 
@@ -219,22 +220,28 @@ async function autoFillForms() {
 }
 
 function createUserControls() {
-    // if (document.querySelector('#emailform')) return false
-    // if (document.querySelector('#loginform')) return false
-    // if (document.querySelector('#passpage-container')) return false
-    // window.addEventListener('submit', createButton)
-    // return true
+    if (document.querySelector('#div_id')) return true
+    let div = document.createElement("div");
+    div.id = "div_id";
+    div.className = "div_class";
+    div.style = "background-color: lightgrey; position:absolute; top:1rem";
     createSetCookieButton()
+    createPerformAutomateButton()
+    document?.body?.appendChild(div);
+    
     function createSetCookieButton() {
-        if (document.querySelector('#div_id')) return true
         let btn = document.createElement("button");
         btn.innerText = 'Click after logged in'
-        btn.id = "div_id";
-        btn.className = "div_class";
-        btn.style = "background-color: lightgrey; position:absolute; top:1rem";
-        document?.body?.appendChild(btn);
+        div.appendChild(btn);
         btn.addEventListener('click', setCookie)
     }
+    function createPerformAutomateButton(){
+        let btn = document.createElement("button");
+        btn.innerText = 'automate'
+        div.appendChild(btn);
+        btn.addEventListener('click', runPuppet)
+    }
+    
 }
 
 async function wait(time) {
