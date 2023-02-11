@@ -1,10 +1,7 @@
 import puppeteer from 'puppeteer';
 import fs from 'fs/promises'
 
-const URLS = [
-    'https://www.indeed.com/rc/clk?jk=5a37ae9051c799fe&from=hp&tk=1gohq4drbi6nc801',
-    'https://www.indeed.com/rc/clk?jk=5a37ae9051c799fe&from=hp&tk=1gohq4drbi6nc801',
-]
+import URLS from './URLS.mjs'
 
 let ARR = []
 main()
@@ -18,8 +15,8 @@ async function main() {
     });
     const page = await browser.newPage();
     const acceptBeforeUnload = dialog =>
-        dialog.type() === "beforeunload" && dialog.accept()
-        ;
+        // dialog.type() === "beforeunload" && dialog.accept()
+        dialog.accept()
     page.on("dialog", acceptBeforeUnload);
 
     await page.setCookie(...cookies)
@@ -65,9 +62,8 @@ async function runPuppet(page) {
                 const url = frame.url();
                 if (!/secure.indeed.com\/auth/i.test(url)) {
                     await wait(3000)
-                    await page.evaluate(listenToSubmission)
+                    await page.evaluate(createUserControls)
                 }
-
             });
             break
         }
@@ -78,7 +74,6 @@ async function runPuppet(page) {
             await new Promise((resolve, reject) => {
                 intervalId = setInterval(async () => {
                     try {
-
                         ARR = []
                         const currentUrl = await page.evaluate(() => document.location.href);
                         if (currentUrl == preUrl) {
@@ -224,7 +219,7 @@ function evaluate() {
                         }
                     }
                 }
-                else if (['text', 'number'].includes(inputs[0].type)) {
+                else if (!inputs[0].value && ['text', 'number'].includes(inputs[0].type)) {
                     const obj = {}
                     const input = inputs[0]
                     const id = input.id
@@ -266,14 +261,14 @@ function evaluate() {
     }
 }
 
-function listenToSubmission() {
+function createUserControls() {
     // if (document.querySelector('#emailform')) return false
     // if (document.querySelector('#loginform')) return false
     // if (document.querySelector('#passpage-container')) return false
     // window.addEventListener('submit', createButton)
     // return true
-    createButton()
-    function createButton() {
+    createSetCookieButton()
+    function createSetCookieButton() {
         if (document.querySelector('#div_id')) return true
         let btn = document.createElement("button");
         btn.innerText = 'Click after logged in'
