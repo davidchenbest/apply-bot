@@ -4,10 +4,11 @@ import fs from 'fs/promises'
 import QUESTION_TYPES from './QUESTION_TYPES.mjs'
 import prisma from './prisma/prismaClient.mjs';
 
+const TASKS = 1
+
 let ARR = []
 main()
 async function main() {
-    const cookies = JSON.parse(await fs.readFile('COOKIE'))
     const browser = await puppeteer.launch({
         headless: false, defaultViewport: {
             width: 1700,
@@ -15,17 +16,11 @@ async function main() {
         }
     });
     const page = await browser.newPage();
-    const acceptBeforeUnload = dialog => dialog.accept()
-    page.on("dialog", acceptBeforeUnload);
-
+    const cookies = JSON.parse(await fs.readFile('COOKIE'))
     await page.setCookie(...cookies)
-
-    await page.exposeFunction("addArr", (item) => { ARR.push(item) });
     await page.exposeFunction("setCookie", setCookie);
-    await page.exposeFunction("getQuestionTypes", () => QUESTION_TYPES);
-    await page.exposeFunction("runPuppet", () => runPuppet(page));
     await page.exposeFunction("getJobURLs", () => getJobURLs(page));
-
+    await page.exposeFunction("runTasks", () => runTasks(browser));
     await page.evaluate(createUserControls)
 
     page.on("framenavigated", async (frame) => {
@@ -46,87 +41,97 @@ async function main() {
     }
 }
 
-async function runPuppet(page) {
-    const jobs = (await prisma.job.findMany({ where: { applied: { equals: null } }, take: 1 }))
-    const URLS = jobs.map(obj => `https://www.indeed.com/viewjob?jk=${obj.id}`)
-    for (let i = 0; i < URLS.length; i++) {
-        const URL = URLS[i]
-        try {
-            await page.goto(URL, { waitUntil: 'load' });
-            const jobTitle = jobs[i].title
-            const company = jobs[i].company
-            const isApplyCompanySite = await page.evaluate(() => /Apply on company site/i.test(document.querySelector('#applyButtonLinkContainer')?.innerHTML))
+async function initPage(page) {
+    page.on("dialog", dialog => dialog.accept());
+    await page.exposeFunction("addArr", (item) => { ARR.push(item) });
+    await page.exposeFunction("getQuestionTypes", () => QUESTION_TYPES);
+}
 
-            if (isApplyCompanySite) {
-                throw new Error('apply company site')
-            }
-            //check apply button is disabled
-            const isApplyDisabled = await page.evaluate(() => document.querySelector('#indeedApplyButton')?.hasAttribute('disabled'))
-            if (isApplyDisabled) {
-                await fs.appendFile('ERROR_URLS', '\n' + JSON.stringify({ msg: 'applied', url: URL }) + ',')
-                continue
-            }
-            await page.click('#indeedApplyButton')
-            await page.waitForNavigation()
+async function runTasks(browser) {
+    const jobs = (await prisma.job.findMany({ where: { applied: { equals: null } }, take: TASKS }))
+    for (const job of jobs) {
+        const page = await browser.newPage();
+        await runPuppet(page, job)
+    }
+}
 
-            const needToLogin = await page.evaluate(() => !!document.querySelector('input[type=email]'))
-            if (!needToLogin) await fillForms()
-            else {
-                break
-            }
+async function runPuppet(page, job) {
+    await initPage(page)
+    const URL = `https://www.indeed.com/viewjob?jk=${job.id}`
 
-            async function fillForms() {
-                let intervalId
-                let preUrl
-                await new Promise((resolve, reject) => {
-                    intervalId = setInterval(async () => {
-                        try {
-                            ARR = []
-                            const currentUrl = await page.evaluate(() => document.location.href);
-                            if (currentUrl == preUrl) {
-                                throw new Error('fail submitting')
-                            }
-                            else preUrl = currentUrl
-                            await page.evaluate(autoFillForms)
-                            console.log(ARR);
-                            for (const { id, classname, checked, value, selectValue } of ARR) {
-                                if (id) {
-                                    if (selectValue) await page.select('#' + id, selectValue)
-                                    if (checked) await page.click('#' + id)
-                                    if (value) await page.type('#' + id, value)
-                                }
+    try {
+        await page.goto(URL, { waitUntil: 'load' });
+        const jobTitle = job.title
+        const company = job.company
+        const isApplyCompanySite = await page.evaluate(() => /Apply on company site/i.test(document.querySelector('#applyButtonLinkContainer')?.innerHTML))
 
-                            }
-                            const isSubmitAppBtn = await page.evaluate(() => /Submit your application/i.test(document.querySelector('.ia-continueButton')?.innerHTML))
-                            if (isSubmitAppBtn) {
-                                await page.screenshot({ path: './screenshots/' + [jobTitle, company].join('-') + '.png', type: 'png', fullPage: true });
-                                await fs.appendFile('SUCCESS_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
-                                clearInterval(intervalId)
-                                const { id } = jobs[i]
-                                await prisma.job.update({ data: { applied: true }, where: { id } })
-                                resolve()
-                            }
-                            else await page.click('.ia-continueButton')
-
-                        } catch (error) {
-                            clearInterval(intervalId)
-                            console.log('EXIT INTERVAL', error.message);
-                            reject(error)
-                        }
-
-                    }, 3000)
-                })
-            }
+        if (isApplyCompanySite) {
+            throw new Error('apply company site')
         }
-        catch (error) {
-            console.log(error);
-            const { id } = jobs[i]
-            await prisma.job.update({ data: { errorMsg: error.message, applied: false }, where: { id } })
+        //check apply button is disabled
+        const isApplyDisabled = await page.evaluate(() => document.querySelector('#indeedApplyButton')?.hasAttribute('disabled'))
+        if (isApplyDisabled) {
+            await fs.appendFile('ERROR_URLS', '\n' + JSON.stringify({ msg: 'applied', url: URL }) + ',')
+            return
+        }
+        await page.click('#indeedApplyButton')
+        await page.waitForNavigation()
 
+        const needToLogin = await page.evaluate(() => !!document.querySelector('input[type=email]'))
+        if (!needToLogin) await fillForms()
+        else {
+            return
+        }
+
+        async function fillForms() {
+            let intervalId
+            let preUrl
+            await new Promise((resolve, reject) => {
+                intervalId = setInterval(async () => {
+                    try {
+                        ARR = []
+                        const currentUrl = await page.evaluate(() => document.location.href);
+                        if (currentUrl == preUrl) {
+                            throw new Error('fail submitting')
+                        }
+                        else preUrl = currentUrl
+                        await page.evaluate(autoFillForms)
+                        console.log(ARR);
+                        for (const { id, classname, checked, value, selectValue } of ARR) {
+                            if (id) {
+                                if (selectValue) await page.select('#' + id, selectValue)
+                                if (checked) await page.click('#' + id)
+                                if (value) await page.type('#' + id, value)
+                            }
+
+                        }
+                        const isSubmitAppBtn = await page.evaluate(() => /Submit your application/i.test(document.querySelector('.ia-continueButton')?.innerHTML))
+                        if (isSubmitAppBtn) {
+                            await page.screenshot({ path: './screenshots/' + [jobTitle, company].join('-') + '.png', type: 'png', fullPage: true });
+                            await fs.appendFile('SUCCESS_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
+                            clearInterval(intervalId)
+                            const { id } = job
+                            await prisma.job.update({ data: { applied: true }, where: { id } })
+                            resolve()
+                        }
+                        else await page.click('.ia-continueButton')
+
+                    } catch (error) {
+                        clearInterval(intervalId)
+                        console.log('EXIT INTERVAL', error.message);
+                        reject(error)
+                    }
+
+                }, 3000)
+            })
         }
     }
+    catch (error) {
+        console.log(error);
+        const { id } = job
+        await prisma.job.update({ data: { errorMsg: error.message, applied: false }, where: { id } })
 
-    console.log('done');
+    }
 }
 
 async function autoFillForms() {
@@ -175,11 +180,12 @@ async function autoFillForms() {
                         if (checked && /1|Yes|true/i.test(input.value)) {
                             input.click()
                             useDefault = false
-
+                            break
                         }
-                        else if (/0|no|false/i.test(input.value)) {
+                        else if (!checked && /0|no|false/i.test(input.value)) {
                             input.click()
                             useDefault = false
+                            break
                         }
                     }
                 }
@@ -230,8 +236,8 @@ async function getJobURLs(page) {
     const jobs = await page.evaluate(() => [...document.querySelectorAll('tr h2 a')].map(el => (
         {
             id: el.getAttribute('data-jk'),
-            title: el.innerHTML.match(/(<.*>)?(.+)</)[2],
-            company: el.parentNode.parentNode.parentNode.querySelector('.companyName').innerHTML,
+            title: el.innerHTML.replace(/<.+?>/g, ''),
+            company: el.parentNode.parentNode.parentNode.querySelector('.companyName').innerHTML.replace(/<.+?>/g, ''),
         }
     )))
     const saveJobs = jobs.map(job => prisma.job.create({ data: job }))
@@ -258,7 +264,7 @@ function createUserControls() {
         let btn = document.createElement("button");
         btn.innerText = 'automate'
         div.appendChild(btn);
-        btn.addEventListener('click', runPuppet)
+        btn.addEventListener('click', runTasks)
     }
     function createGetJobURLsButton() {
         let btn = document.createElement("button");
