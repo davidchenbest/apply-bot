@@ -211,10 +211,19 @@ async function autoFillForms() {
             const inputs = el.querySelectorAll('input')
             if (!inputs.length) continue
             if (inputs[0].type === 'radio') {
-                // select no
+                let hasInitialValue
                 for (const input of inputs) {
-                    if (input.value == '0') {
-                        input.click()
+                    if (input.checked) {
+                        hasInitialValue = true
+                        break
+                    }
+                }
+                if (!hasInitialValue) {
+                    // select no
+                    for (const input of inputs) {
+                        if (input.value == '0') {
+                            input.click()
+                        }
                     }
                 }
             }
