@@ -1,7 +1,7 @@
 import puppeteer from 'puppeteer';
 import fs from 'fs/promises'
 
-import QUESTION_TYPES from './QUESTION_TYPES.mjs'
+let QUESTION_TYPES = []
 import prisma from './prisma/prismaClient.mjs';
 
 const TASKS = 1
@@ -44,6 +44,7 @@ async function main() {
 async function initPage(page) {
     page.on("dialog", dialog => dialog.accept());
     await page.exposeFunction("addArr", (item) => { ARR.push(item) });
+    QUESTION_TYPES = await prisma.question.findMany()
     await page.exposeFunction("getQuestionTypes", () => QUESTION_TYPES);
 }
 
