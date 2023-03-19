@@ -1,11 +1,10 @@
 import puppeteer from 'puppeteer';
 import fs from 'fs/promises'
-
-let QUESTION_TYPES = []
 import prisma from './prisma/prismaClient.mjs';
 
 const TASKS = 1
 
+let QUESTION_TYPES = []
 let ARR = []
 main()
 async function main() {
@@ -49,7 +48,8 @@ async function initPage(page) {
 }
 
 async function runTasks(browser) {
-    const jobs = (await prisma.job.findMany({ where: { applied: { equals: null } }, take: TASKS }))
+    const { tasks } = await prisma.setting.findFirst()
+    const jobs = (await prisma.job.findMany({ where: { applied: { equals: null } }, take: tasks }))
     for (const job of jobs) {
         const page = await browser.newPage();
         await runPuppet(page, job)
@@ -148,7 +148,7 @@ async function autoFillForms() {
                 const selectEl = el.querySelector('select')
                 const options = el.querySelectorAll('option')
                 for (const option of options) {
-                    if (select.test(option.innerHTML)) {
+                    if (new RegExp(select, 'i').test(option.innerHTML)) {
                         const obj = {}
                         const id = selectEl.id
                         const classes = selectEl.classList
