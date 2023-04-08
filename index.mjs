@@ -2,8 +2,6 @@ import puppeteer from 'puppeteer';
 import fs from 'fs/promises'
 import prisma from './prisma/prismaClient.mjs';
 
-const TASKS = 1
-
 let QUESTION_TYPES = []
 let ARR = []
 main()
@@ -52,7 +50,7 @@ async function runTasks(browser) {
     const jobs = (await prisma.job.findMany({ where: { applied: { equals: null } }, take: tasks }))
     for (const job of jobs) {
         const page = await browser.newPage();
-        await runPuppet(page, job)
+        runPuppet(page, job)
     }
 }
 
@@ -190,7 +188,9 @@ async function autoFillForms() {
                         }
                     }
                 }
-                else if (!inputs[0].value && ['text', 'number'].includes(inputs[0].type)) {
+                else if (!inputs[0].value
+                    // && ['text', 'number'].includes(inputs[0].type)
+                ) {
                     const obj = {}
                     const input = inputs[0]
                     const id = input.id
