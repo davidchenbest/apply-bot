@@ -43,6 +43,14 @@ async function initPage(page) {
     await page.exposeFunction("addArr", (item) => { ARR.push(item) });
     QUESTION_TYPES = await prisma.question.findMany()
     await page.exposeFunction("getQuestionTypes", () => QUESTION_TYPES);
+    page.on("framenavigated", async () => {
+        try {
+            const isSubmitted = await page.evaluate(() => !!/Your application has been submitted!/i.test(document?.querySelector('h1')?.innerHTML))
+            if (isSubmitted) await page.close()
+        } catch (error) {
+            console.log(error.message);
+        }
+    });
 }
 
 async function runTasks(browser) {
