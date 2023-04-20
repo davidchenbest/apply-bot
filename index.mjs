@@ -54,15 +54,15 @@ async function initPage(page) {
 }
 
 async function runTasks(browser) {
-    const { tasks } = await prisma.setting.findFirst()
-    const jobs = (await prisma.job.findMany({ where: { applied: { equals: null } }, take: tasks }))
+    const setting = await prisma.setting.findFirst()
+    const jobs = (await prisma.job.findMany({ where: { applied: { equals: null } }, take: setting.tasks }))
     for (const job of jobs) {
         const page = await browser.newPage();
-        runPuppet(page, job)
+        runPuppet(page, job, setting)
     }
 }
 
-async function runPuppet(page, job) {
+async function runPuppet(page, job, setting) {
     await initPage(page)
     const URL = `https://www.indeed.com/viewjob?jk=${job.id}`
 
@@ -85,12 +85,12 @@ async function runPuppet(page, job) {
         await page.waitForNavigation()
 
         const needToLogin = await page.evaluate(() => !!document.querySelector('input[type=email]'))
-        if (!needToLogin) await fillForms()
+        if (!needToLogin) await fillForms(setting)
         else {
             return
         }
 
-        async function fillForms() {
+        async function fillForms({ screenShot }) {
             let intervalId
             let preUrl
             await new Promise((resolve, reject) => {
@@ -114,7 +114,7 @@ async function runPuppet(page, job) {
                         }
                         const isSubmitAppBtn = await page.evaluate(() => /Submit your application/i.test(document.querySelector('.ia-continueButton')?.innerHTML))
                         if (isSubmitAppBtn) {
-                            await page.screenshot({ path: './screenshots/' + [jobTitle, company].join('-') + '.png', type: 'png', fullPage: true });
+                            if (screenShot) await page.screenshot({ path: './screenshots/' + [jobTitle, company].join('-') + '.png', type: 'png', fullPage: true });
                             await fs.appendFile('SUCCESS_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
                             clearInterval(intervalId)
                             const { id } = job
