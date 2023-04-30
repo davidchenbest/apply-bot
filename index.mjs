@@ -38,15 +38,17 @@ async function main() {
     }
 }
 
-async function initPage(page) {
+async function initPage(page, setting = {}) {
     page.on("dialog", dialog => dialog.accept());
     await page.exposeFunction("addArr", (item) => { ARR.push(item) });
     QUESTION_TYPES = await prisma.question.findMany()
     await page.exposeFunction("getQuestionTypes", () => QUESTION_TYPES);
+    await page.exposeFunction("continueFillForms", async () => await fillForms(page, setting));
     page.on("framenavigated", async () => {
         try {
             const isSubmitted = await page.evaluate(() => !!/Your application has been submitted!/i.test(document?.querySelector('h1')?.innerHTML))
             if (isSubmitted) await page.close()
+            await page.evaluate(createTaskControls)
         } catch (error) {
             console.log(error.message);
         }
@@ -63,7 +65,7 @@ async function runTasks(browser) {
 }
 
 async function runPuppet(page, job, setting) {
-    await initPage(page)
+    await initPage(page, setting)
     const URL = `https://www.indeed.com/viewjob?jk=${job.id}`
 
     try {
@@ -85,53 +87,8 @@ async function runPuppet(page, job, setting) {
         await page.waitForNavigation()
 
         const needToLogin = await page.evaluate(() => !!document.querySelector('input[type=email]'))
-        if (!needToLogin) await fillForms(setting)
-        else {
-            return
-        }
-
-        async function fillForms({ screenShot }) {
-            let intervalId
-            let preUrl
-            await new Promise((resolve, reject) => {
-                intervalId = setInterval(async () => {
-                    try {
-                        ARR = []
-                        const currentUrl = await page.evaluate(() => document.location.href);
-                        if (currentUrl == preUrl) {
-                            throw new Error('fail submitting')
-                        }
-                        else preUrl = currentUrl
-                        await page.evaluate(autoFillForms)
-                        console.log(ARR);
-                        for (const { id, classname, checked, value, selectValue } of ARR) {
-                            if (id) {
-                                if (selectValue) await page.select('#' + id, selectValue)
-                                if (checked) await page.click('#' + id)
-                                if (value) await page.type('#' + id, value)
-                            }
-
-                        }
-                        const isSubmitAppBtn = await page.evaluate(() => /Submit your application/i.test(document.querySelector('.ia-continueButton')?.innerHTML))
-                        if (isSubmitAppBtn) {
-                            if (screenShot) await page.screenshot({ path: './screenshots/' + [jobTitle, company].join('-') + '.png', type: 'png', fullPage: true });
-                            await fs.appendFile('SUCCESS_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
-                            clearInterval(intervalId)
-                            const { id } = job
-                            await prisma.job.update({ data: { applied: true }, where: { id } })
-                            resolve()
-                        }
-                        else await page.click('.ia-continueButton')
-
-                    } catch (error) {
-                        clearInterval(intervalId)
-                        console.log('EXIT INTERVAL', error.message);
-                        reject(error)
-                    }
-
-                }, 3000)
-            })
-        }
+        if (!needToLogin) await fillForms(page, setting)
+        else return
     }
     catch (error) {
         console.log(error);
@@ -139,6 +96,49 @@ async function runPuppet(page, job, setting) {
         await prisma.job.update({ data: { errorMsg: error.message, applied: false }, where: { id } })
 
     }
+}
+
+async function fillForms(page, { screenShot }) {
+    let intervalId
+    let preUrl
+    await new Promise((resolve, reject) => {
+        intervalId = setInterval(async () => {
+            try {
+                ARR = []
+                const currentUrl = await page.evaluate(() => document.location.href);
+                if (currentUrl == preUrl) {
+                    throw new Error('fail submitting')
+                }
+                else preUrl = currentUrl
+                await page.evaluate(autoFillForms)
+                console.log(ARR);
+                for (const { id, classname, checked, value, selectValue } of ARR) {
+                    if (id) {
+                        if (selectValue) await page.select('#' + id, selectValue)
+                        if (checked) await page.click('#' + id)
+                        if (value) await page.type('#' + id, value)
+                    }
+
+                }
+                const isSubmitAppBtn = await page.evaluate(() => /Submit your application/i.test(document.querySelector('.ia-continueButton')?.innerHTML))
+                if (isSubmitAppBtn) {
+                    if (screenShot) await page.screenshot({ path: './screenshots/' + [jobTitle, company].join('-') + '.png', type: 'png', fullPage: true });
+                    await fs.appendFile('SUCCESS_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
+                    clearInterval(intervalId)
+                    const { id } = job
+                    await prisma.job.update({ data: { applied: true }, where: { id } })
+                    resolve()
+                }
+                else await page.click('.ia-continueButton')
+
+            } catch (error) {
+                clearInterval(intervalId)
+                console.log('EXIT INTERVAL', error.message);
+                reject(error)
+            }
+
+        }, 3000)
+    })
 }
 
 async function autoFillForms() {
@@ -289,6 +289,22 @@ function createUserControls() {
         btn.innerText = 'getJobURLs'
         div.appendChild(btn);
         btn.addEventListener('click', getJobURLs)
+    }
+}
+
+function createTaskControls() {
+    if (document.querySelector('#div_id')) return true
+    let div = document.createElement("div");
+    div.id = "div_id";
+    div.className = "div_class";
+    div.style = "background-color: lightgrey; position:fixed; top:1rem; z-index:999;";
+    createFillFormsButton()
+    document?.body?.appendChild(div);
+    function createFillFormsButton() {
+        let btn = document.createElement("button");
+        btn.innerText = 'FILL'
+        div.appendChild(btn);
+        btn.addEventListener('click', continueFillForms)
     }
 }
 
