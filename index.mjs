@@ -43,7 +43,7 @@ async function initPage(page, setting = {}) {
     await page.exposeFunction("addArr", (item) => { ARR.push(item) });
     QUESTION_TYPES = await prisma.question.findMany()
     await page.exposeFunction("getQuestionTypes", () => QUESTION_TYPES);
-    await page.exposeFunction("continueFillForms", async () => await fillForms(page, setting, true));
+    await page.exposeFunction("continueFillForms", async () => await fillForms({ page, setting, runImmediately: true }));
     page.on("framenavigated", async () => {
         try {
             const isSubmitted = await page.evaluate(() => !!/Your application has been submitted!/i.test(document?.querySelector('h1')?.innerHTML))
@@ -87,7 +87,7 @@ async function runPuppet(page, job, setting) {
         await page.waitForNavigation()
 
         const needToLogin = await page.evaluate(() => !!document.querySelector('input[type=email]'))
-        if (!needToLogin) await fillForms(page, setting)
+        if (!needToLogin) await fillForms({ page, setting })
         else return
     }
     catch (error) {
@@ -98,7 +98,7 @@ async function runPuppet(page, job, setting) {
     }
 }
 
-async function fillForms(page, { screenShot }, runImmediately) {
+async function fillForms({ page, setting: { screenShot }, runImmediately }) {
     let intervalId
     let preUrl
     if (runImmediately) await new Promise((resolve, reject) => fillForm(resolve, reject))
