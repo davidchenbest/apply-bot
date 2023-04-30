@@ -102,43 +102,45 @@ async function fillForms(page, { screenShot }) {
     let intervalId
     let preUrl
     await new Promise((resolve, reject) => {
-        intervalId = setInterval(async () => {
-            try {
-                ARR = []
-                const currentUrl = await page.evaluate(() => document.location.href);
-                if (currentUrl == preUrl) {
-                    throw new Error('fail submitting')
-                }
-                else preUrl = currentUrl
-                await page.evaluate(autoFillForms)
-                console.log(ARR);
-                for (const { id, classname, checked, value, selectValue } of ARR) {
-                    if (id) {
-                        if (selectValue) await page.select('#' + id, selectValue)
-                        if (checked) await page.click('#' + id)
-                        if (value) await page.type('#' + id, value)
-                    }
-
-                }
-                const isSubmitAppBtn = await page.evaluate(() => /Submit your application/i.test(document.querySelector('.ia-continueButton')?.innerHTML))
-                if (isSubmitAppBtn) {
-                    if (screenShot) await page.screenshot({ path: './screenshots/' + [jobTitle, company].join('-') + '.png', type: 'png', fullPage: true });
-                    await fs.appendFile('SUCCESS_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
-                    clearInterval(intervalId)
-                    const { id } = job
-                    await prisma.job.update({ data: { applied: true }, where: { id } })
-                    resolve()
-                }
-                else await page.click('.ia-continueButton')
-
-            } catch (error) {
-                clearInterval(intervalId)
-                console.log('EXIT INTERVAL', error.message);
-                reject(error)
-            }
-
-        }, 3000)
+        intervalId = setInterval(() => fillForm(resolve, reject), 3000)
     })
+    async function fillForm(resolve, reject) {
+        try {
+            ARR = []
+            const currentUrl = await page.evaluate(() => document.location.href);
+            if (currentUrl == preUrl) {
+                throw new Error('fail submitting')
+            }
+            else preUrl = currentUrl
+            await page.evaluate(autoFillForms)
+            console.log(ARR);
+            for (const { id, classname, checked, value, selectValue } of ARR) {
+                if (id) {
+                    if (selectValue) await page.select('#' + id, selectValue)
+                    if (checked) await page.click('#' + id)
+                    if (value) await page.type('#' + id, value)
+                }
+
+            }
+            const isSubmitAppBtn = await page.evaluate(() => /Submit your application/i.test(document.querySelector('.ia-continueButton')?.innerHTML))
+            if (isSubmitAppBtn) {
+                if (screenShot) await page.screenshot({ path: './screenshots/' + [jobTitle, company].join('-') + '.png', type: 'png', fullPage: true });
+                await fs.appendFile('SUCCESS_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
+                clearInterval(intervalId)
+                const { id } = job
+                await prisma.job.update({ data: { applied: true }, where: { id } })
+                resolve()
+            }
+            else await page.click('.ia-continueButton')
+
+        } catch (error) {
+            clearInterval(intervalId)
+            console.log('EXIT INTERVAL', error.message);
+            reject(error)
+        }
+
+    }
+
 }
 
 async function autoFillForms() {
