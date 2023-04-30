@@ -1,9 +1,9 @@
 import puppeteer from 'puppeteer';
 import fs from 'fs/promises'
 import prisma from './prisma/prismaClient.mjs';
+import { wait } from './utils/index.mjs';
 
 let QUESTION_TYPES = []
-let ARR = []
 main()
 async function main() {
     const browser = await puppeteer.launch({
@@ -40,7 +40,8 @@ async function main() {
 
 async function initPage(page, setting = {}) {
     page.on("dialog", dialog => dialog.accept());
-    await page.exposeFunction("addArr", (item) => { ARR.push(item) });
+    page.ARR = []
+    await page.exposeFunction("addArr", (item) => { page.ARR.push(item) });
     QUESTION_TYPES = await prisma.question.findMany()
     await page.exposeFunction("getQuestionTypes", () => QUESTION_TYPES);
     await page.exposeFunction("continueFillForms", async () => await fillForms({ page, setting, runImmediately: true }));
@@ -106,15 +107,15 @@ async function fillForms({ page, setting: { screenShot }, runImmediately }) {
     })
     async function fillForm(resolve, reject) {
         try {
-            ARR = []
+            page.ARR = []
             const currentUrl = await page.evaluate(() => document.location.href);
             if (currentUrl == preUrl) {
                 throw new Error('fail submitting')
             }
             else preUrl = currentUrl
             await page.evaluate(autoFillForms)
-            console.log(ARR);
-            for (const { id, classname, checked, value, selectValue } of ARR) {
+            console.log(page.ARR);
+            for (const { id, classname, checked, value, selectValue } of page.ARR) {
                 if (id) {
                     if (selectValue) await page.select('#' + id, selectValue)
                     if (checked) await page.click('#' + id)
@@ -312,12 +313,4 @@ function createTaskControls() {
         div.appendChild(btn);
         btn.addEventListener('click', continueFillForms)
     }
-}
-
-async function wait(time) {
-    return new Promise((resolve, reject) => {
-        setTimeout(() => {
-            resolve()
-        }, time)
-    })
 }
