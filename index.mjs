@@ -70,8 +70,7 @@ async function runPuppet(page, job, setting) {
 
     try {
         await page.goto(URL, { waitUntil: 'load' });
-        const jobTitle = job.title
-        const company = job.company
+        page.job = job
         const isApplyCompanySite = await page.evaluate(() => /Apply on company site/i.test(document.querySelector('#applyButtonLinkContainer')?.innerHTML))
 
         if (isApplyCompanySite) {
@@ -125,11 +124,11 @@ async function fillForms({ page, setting: { screenShot }, runImmediately }) {
             }
             const isSubmitAppBtn = await page.evaluate(() => /Submit your application/i.test(document.querySelector('.ia-continueButton')?.innerHTML))
             if (isSubmitAppBtn) {
+                const { title: jobTitle, company, id: jobId } = page?.job
                 if (screenShot) await page.screenshot({ path: './screenshots/' + [jobTitle, company].join('-') + '.png', type: 'png', fullPage: true });
                 await fs.appendFile('SUCCESS_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
                 clearInterval(intervalId)
-                const { id } = job
-                await prisma.job.update({ data: { applied: true }, where: { id } })
+                await prisma.job.update({ data: { applied: true }, where: { id: jobId } })
                 resolve()
             }
             else await page.click('.ia-continueButton')
