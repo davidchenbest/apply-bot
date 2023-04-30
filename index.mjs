@@ -43,7 +43,7 @@ async function initPage(page, setting = {}) {
     await page.exposeFunction("addArr", (item) => { ARR.push(item) });
     QUESTION_TYPES = await prisma.question.findMany()
     await page.exposeFunction("getQuestionTypes", () => QUESTION_TYPES);
-    await page.exposeFunction("continueFillForms", async () => await fillForms(page, setting));
+    await page.exposeFunction("continueFillForms", async () => await fillForms(page, setting, true));
     page.on("framenavigated", async () => {
         try {
             const isSubmitted = await page.evaluate(() => !!/Your application has been submitted!/i.test(document?.querySelector('h1')?.innerHTML))
@@ -98,9 +98,10 @@ async function runPuppet(page, job, setting) {
     }
 }
 
-async function fillForms(page, { screenShot }) {
+async function fillForms(page, { screenShot }, runImmediately) {
     let intervalId
     let preUrl
+    if (runImmediately) await new Promise((resolve, reject) => fillForm(resolve, reject))
     await new Promise((resolve, reject) => {
         intervalId = setInterval(() => fillForm(resolve, reject), 3000)
     })
@@ -132,10 +133,14 @@ async function fillForms(page, { screenShot }) {
                 resolve()
             }
             else await page.click('.ia-continueButton')
+            if (runImmediately) resolve()
 
         } catch (error) {
-            clearInterval(intervalId)
-            console.log('EXIT INTERVAL', error.message);
+            if (intervalId) {
+                clearInterval(intervalId)
+                console.log('EXIT INTERVAL', error.message);
+            }
+            else console.log('EXIT FILL FORM', error.message);
             reject(error)
         }
 
