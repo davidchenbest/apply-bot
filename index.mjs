@@ -1,4 +1,8 @@
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-extra'
+import StealthPlugin from 'puppeteer-extra-plugin-stealth'
+puppeteer.use(StealthPlugin())
+import { executablePath } from 'puppeteer'
+
 import fs from 'fs/promises'
 import prisma from './prisma/prismaClient.mjs';
 import { wait } from './utils/index.mjs';
@@ -7,6 +11,7 @@ let QUESTION_TYPES = []
 main()
 async function main() {
     const browser = await puppeteer.launch({
+        executablePath: executablePath(),
         headless: false, defaultViewport: {
             width: 1700,
             height: 1080
