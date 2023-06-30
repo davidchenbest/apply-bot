@@ -113,6 +113,9 @@ async function fillForms({ page, setting: { screenShot }, runImmediately }) {
     })
     async function fillForm(resolve, reject) {
         try {
+            //click resume
+            const hasResume = await page.evaluate(() => !!document.querySelector('#resume-display-buttonHeader'))
+            if (hasResume) await page.click('#resume-display-buttonHeader')
             page.ARR = []
             const currentUrl = await page.evaluate(() => document.location.href);
             if (currentUrl == preUrl) {
