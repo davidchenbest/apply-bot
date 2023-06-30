@@ -88,6 +88,7 @@ async function runPuppet(page, job, setting) {
             await fs.appendFile('ERROR_URLS', '\n' + JSON.stringify({ msg: 'applied', url: URL }) + ',')
             return
         }
+        await wait(1000)
         await page.click('#indeedApplyButton')
         await page.waitForNavigation()
 
