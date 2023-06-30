@@ -53,7 +53,12 @@ async function initPage(page, setting = {}) {
     page.on("framenavigated", async () => {
         try {
             const isSubmitted = await page.evaluate(() => !!/Your application has been submitted!/i.test(document?.querySelector('h1')?.innerHTML))
-            if (isSubmitted) await page.close()
+            if (isSubmitted) {
+                await page.close()
+                if (page?.job?.id) {
+                    await prisma.job.update({ data: { applied: true }, where: { id: page.job.id } })
+                }
+            }
             await page.evaluate(createTaskControls)
         } catch (error) {
             console.log(error.message);
@@ -138,7 +143,6 @@ async function fillForms({ page, setting: { screenShot }, runImmediately }) {
                 if (screenShot) await page.screenshot({ path: './screenshots/' + [jobTitle, company].join('-') + '.png', type: 'png', fullPage: true });
                 await fs.appendFile('SUCCESS_URLS', '\n' + JSON.stringify({ url: URL }) + ',')
                 clearInterval(intervalId)
-                await prisma.job.update({ data: { applied: true }, where: { id: jobId } })
                 resolve()
             }
             else await page.click('.ia-continueButton')
