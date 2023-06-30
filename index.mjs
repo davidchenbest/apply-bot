@@ -54,10 +54,10 @@ async function initPage(page, setting = {}) {
         try {
             const isSubmitted = await page.evaluate(() => !!/Your application has been submitted!/i.test(document?.querySelector('h1')?.innerHTML))
             if (isSubmitted) {
-                await page.close()
                 if (page?.job?.id) {
                     await prisma.job.update({ data: { applied: true }, where: { id: page.job.id } })
                 }
+                await page.close()
             }
             await page.evaluate(createTaskControls)
         } catch (error) {
