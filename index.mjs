@@ -50,6 +50,8 @@ async function initPage(page, setting = {}) {
     QUESTION_TYPES = await prisma.question.findMany()
     await page.exposeFunction("getQuestionTypes", () => QUESTION_TYPES);
     await page.exposeFunction("continueFillForms", async () => await fillForms({ page, setting, runImmediately: true }));
+    await page.exposeFunction("cancelApp", () => cancelApp(page));
+
     page.on("framenavigated", async () => {
         try {
             const isSubmitted = await page.evaluate(() => !!/Your application has been submitted!/i.test(document?.querySelector('h1')?.innerHTML))
@@ -72,6 +74,13 @@ async function runTasks(browser) {
     for (const job of jobs) {
         const page = await browser.newPage();
         runPuppet(page, job, setting)
+    }
+}
+
+async function cancelApp(page) {
+    if (page?.job?.id) {
+        await prisma.job.update({ data: { applied: false }, where: { id: page.job.id } })
+        await page.close()
     }
 }
 
@@ -319,11 +328,29 @@ function createTaskControls() {
     div.className = "div_class";
     div.style = "background-color: lightgrey; position:fixed; top:1rem; z-index:999;";
     createFillFormsButton()
+    createSubmitButton()
+    createCancelAppButton()
     document?.body?.appendChild(div);
     function createFillFormsButton() {
         let btn = document.createElement("button");
         btn.innerText = 'FILL'
         div.appendChild(btn);
         btn.addEventListener('click', continueFillForms)
+    }
+    function createSubmitButton() {
+        let btn = document.createElement("button");
+        btn.innerText = 'SUBMIT'
+        div.appendChild(btn);
+        btn.addEventListener('click', () => {
+            const submitBtn = document.querySelector('.ia-continueButton')
+            if (!submitBtn.innerHTML.includes('Submit your application')) return
+            submitBtn.click()
+        })
+    }
+    function createCancelAppButton() {
+        let btn = document.createElement("button");
+        btn.innerText = 'cancelApp'
+        div.appendChild(btn);
+        btn.addEventListener('click', cancelApp)
     }
 }
